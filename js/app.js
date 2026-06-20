@@ -252,27 +252,38 @@
   // ---------- REPORTES ----------
   Vistas.reportes = async () => {
     const colabs = (await DB.all('colaboradores')).sort((a, b) => a.nombre.localeCompare(b.nombre));
-    const eventos = (await DB.all('eventos')).sort((a, b) => b.fecha.localeCompare(a.fecha));
-    const fin = hoyISO();
-    const d = new Date(); d.setDate(d.getDate() - 89);
-    const ini = hoyISO(d);
+    const [ini, fin] = rangoMes();
     const optColab = colabs.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
-    const optEv = eventos.map((e) => `<option value="${e.id}">${esc(e.nombre)} · ${fmtFechaISO(e.fecha)}</option>`).join('');
 
     return `
       <h2 class="section-title">Reportes</h2>
       <div class="card">
-        <label>Evento</label>
-        <select id="repEvento"><option value="">Todos</option>${optEv}</select>
+        <label>Periodo rápido</label>
+        <div class="row">
+          <button class="btn ghost sm" data-periodo="semana">Semana</button>
+          <button class="btn sm" data-periodo="mes">Mes</button>
+          <button class="btn ghost sm" data-periodo="cuatri">Cuatrimestre</button>
+        </div>
         <div class="row mt">
           <div><label>Desde</label><input type="date" id="repIni" value="${ini}"></div>
           <div><label>Hasta</label><input type="date" id="repFin" value="${fin}"></div>
         </div>
-        <label>Colaborador</label>
+        <label>Tipo de informe</label>
+        <select id="repTipo">
+          <option value="colaborador">Resumen por colaborador</option>
+          <option value="totales">Totales generales</option>
+          <option value="evento">Resumen por evento</option>
+          <option value="detalle">Detalle completo</option>
+        </select>
+        <label>Colaborador (opcional)</label>
         <select id="repColab"><option value="">Todos</option>${optColab}</select>
         <div class="row mt">
           <button class="btn" id="repGenerar">📊 Generar</button>
-          <button class="btn ghost" id="repCSV">⬇ Exportar CSV</button>
+        </div>
+        <div class="row mt">
+          <button class="btn ok sm" id="repWA">📋 Copiar WhatsApp</button>
+          <button class="btn warn sm" id="repPDF">🖨️ PDF</button>
+          <button class="btn ghost sm" id="repCSV">⬇ CSV</button>
         </div>
       </div>
       <div id="repResultado"></div>
@@ -476,12 +487,28 @@
   }
 
   // ---------- Reportes ----------
+  // ---------- Periodos rápidos ----------
+  function rangoSemana() {
+    const d = new Date(); const lun = (d.getDay() + 6) % 7;
+    const ini = new Date(d); ini.setDate(d.getDate() - lun);
+    const fin = new Date(ini); fin.setDate(ini.getDate() + 6);
+    return [hoyISO(ini), hoyISO(fin)];
+  }
+  function rangoMes() {
+    const d = new Date();
+    return [hoyISO(new Date(d.getFullYear(), d.getMonth(), 1)), hoyISO(new Date(d.getFullYear(), d.getMonth() + 1, 0))];
+  }
+  function rangoCuatri() {
+    const d = new Date();
+    return [hoyISO(new Date(d.getFullYear(), d.getMonth() - 3, 1)), hoyISO(new Date(d.getFullYear(), d.getMonth() + 1, 0))];
+  }
+
   async function reunirReporte() {
     const ini = $('#repIni').value, fin = $('#repFin').value;
-    const eventoId = $('#repEvento').value, colabId = $('#repColab').value;
+    const colabId = $('#repColab') ? $('#repColab').value : '';
     if (!ini || !fin) { toast('Elija el rango de fechas.'); return null; }
+    if (ini > fin) { toast('La fecha "Desde" es posterior a "Hasta".'); return null; }
     let eventos = (await DB.all('eventos')).filter((e) => e.fecha >= ini && e.fecha <= fin);
-    if (eventoId) eventos = eventos.filter((e) => e.id === eventoId);
     const colabs = await DB.all('colaboradores');
     const mapaC = Object.fromEntries(colabs.map((c) => [c.id, c]));
     let filas = [];
@@ -492,36 +519,159 @@
     if (colabId) filas = filas.filter((r) => r.colaboradorId === colabId);
     filas.sort((a, b) => (a.evento.fecha + (mapaC[a.colaboradorId]?.nombre || ''))
       .localeCompare(b.evento.fecha + (mapaC[b.colaboradorId]?.nombre || '')));
-    return { filas, mapaC };
+    return { filas, mapaC, ini, fin, nEventos: eventos.length };
+  }
+
+  // ---------- Agregaciones ----------
+  function aggColaborador(filas, mapaC) {
+    const m = {};
+    filas.forEach((r) => {
+      const id = r.colaboradorId;
+      const o = m[id] || (m[id] = { nombre: mapaC[id]?.nombre || '?', pres: 0, tard: 0, min: 0, ausJ: 0, ausI: 0 });
+      if (r.ausente) { r.justificada ? o.ausJ++ : o.ausI++; }
+      else if (r.entrada) { o.pres++; if (r.minutosTarde > 0) { o.tard++; o.min += r.minutosTarde; } }
+    });
+    return Object.values(m).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }
+  function aggTotales(filas, nEventos) {
+    const t = { eventos: nEventos, pres: 0, tard: 0, min: 0, ausJ: 0, ausI: 0 };
+    filas.forEach((r) => {
+      if (r.ausente) { r.justificada ? t.ausJ++ : t.ausI++; }
+      else if (r.entrada) { t.pres++; if (r.minutosTarde > 0) { t.tard++; t.min += r.minutosTarde; } }
+    });
+    return t;
+  }
+  function aggEvento(filas) {
+    const m = {};
+    filas.forEach((r) => {
+      const ev = r.evento;
+      const o = m[ev.id] || (m[ev.id] = { nombre: ev.nombre, fecha: ev.fecha, pres: 0, tard: 0, ausJ: 0, ausI: 0 });
+      if (r.ausente) { r.justificada ? o.ausJ++ : o.ausI++; }
+      else if (r.entrada) { o.pres++; if (r.minutosTarde > 0) o.tard++; }
+    });
+    return Object.values(m).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  }
+
+  // ---------- Construcción del informe (pantalla + WhatsApp + PDF) ----------
+  function construirInforme(data, tipo) {
+    const { filas, mapaC, ini, fin, nEventos } = data;
+    const periodo = `${fmtFechaISO(ini)} al ${fmtFechaISO(fin)}`;
+    const empresa = Cfg.data.empresa || 'Red de Vida';
+    let titulo, html, texto;
+
+    if (tipo === 'totales') {
+      const t = aggTotales(filas, nEventos);
+      titulo = 'Totales generales';
+      html = `
+        <div class="grid2">
+          <div class="card stat brand"><div class="num">${t.eventos}</div><div class="lbl">Eventos</div></div>
+          <div class="card stat ok"><div class="num">${t.pres}</div><div class="lbl">Presentes</div></div>
+          <div class="card stat warn"><div class="num">${t.tard}</div><div class="lbl">Tardías (${t.min} min)</div></div>
+          <div class="card stat gray"><div class="num">${t.ausJ}</div><div class="lbl">Aus. justificadas</div></div>
+          <div class="card stat bad"><div class="num">${t.ausI}</div><div class="lbl">Aus. injustificadas</div></div>
+        </div>`;
+      texto = `*${empresa} — Totales*\n📅 ${periodo}\n\n`
+        + `🗓️ Eventos: ${t.eventos}\n✅ Presentes: ${t.pres}\n⏰ Tardías: ${t.tard} (${t.min} min)\n`
+        + `🟡 Aus. justificadas: ${t.ausJ}\n🔴 Aus. injustificadas: ${t.ausI}`;
+    } else if (tipo === 'colaborador') {
+      const rows = aggColaborador(filas, mapaC);
+      titulo = 'Resumen por colaborador';
+      html = `<div class="card" style="overflow:auto"><table>
+        <thead><tr><th>Colaborador</th><th>Pres.</th><th>Tard.</th><th>Min</th><th>Aus.J</th><th>Aus.I</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr><td>${esc(r.nombre)}</td><td>${r.pres}</td><td>${r.tard}</td><td>${r.min}</td><td>${r.ausJ}</td><td>${r.ausI}</td></tr>`).join('')}</tbody>
+        </table></div>`;
+      texto = `*${empresa} — Por colaborador*\n📅 ${periodo}\n\n`
+        + rows.map((r) => `*${r.nombre}*\n  ✅ ${r.pres} pres · ⏰ ${r.tard} tard (${r.min}m)\n  🟡 ${r.ausJ} just · 🔴 ${r.ausI} injust`).join('\n\n');
+    } else if (tipo === 'evento') {
+      const rows = aggEvento(filas);
+      titulo = 'Resumen por evento';
+      html = `<div class="card" style="overflow:auto"><table>
+        <thead><tr><th>Fecha</th><th>Evento</th><th>Pres.</th><th>Tard.</th><th>Aus.J</th><th>Aus.I</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr><td>${esc(fmtFechaISO(r.fecha))}</td><td>${esc(r.nombre)}</td><td>${r.pres}</td><td>${r.tard}</td><td>${r.ausJ}</td><td>${r.ausI}</td></tr>`).join('')}</tbody>
+        </table></div>`;
+      texto = `*${empresa} — Por evento*\n📅 ${periodo}\n\n`
+        + rows.map((r) => `*${r.nombre}* (${fmtFechaISO(r.fecha)})\n  ✅ ${r.pres} · ⏰ ${r.tard} · 🟡 ${r.ausJ} · 🔴 ${r.ausI}`).join('\n\n');
+    } else { // detalle
+      titulo = 'Detalle completo';
+      const cuerpo = filas.map((r) => {
+        const c = mapaC[r.colaboradorId];
+        const est = r.ausente ? (r.justificada ? 'Aus. justif.' : 'Aus. injustif.')
+          : (r.minutosTarde > 0 ? `Tarde ${r.minutosTarde}m` : 'A tiempo');
+        return `<tr><td>${esc(fmtFechaISO(r.evento.fecha))}</td><td>${esc(r.evento.nombre)}</td><td>${esc(c?.nombre || '?')}</td>
+          <td>${r.ausente ? '—' : esc(fmt12h(r.entrada) || '—')}</td><td>${r.ausente ? '—' : esc(fmt12h(r.salida) || '—')}</td><td>${esc(est)}</td></tr>`;
+      }).join('');
+      html = `<div class="card" style="overflow:auto"><table>
+        <thead><tr><th>Fecha</th><th>Evento</th><th>Colaborador</th><th>Entrada</th><th>Salida</th><th>Estado</th></tr></thead>
+        <tbody>${cuerpo}</tbody></table></div>`;
+      texto = `*${empresa} — Detalle*\n📅 ${periodo}\n\n`
+        + filas.map((r) => {
+          const c = mapaC[r.colaboradorId];
+          const est = r.ausente ? (r.justificada ? 'aus.just' : 'aus.injust')
+            : (r.minutosTarde > 0 ? `tarde ${r.minutosTarde}m` : 'a tiempo');
+          return `${fmtFechaISO(r.evento.fecha)} · ${r.evento.nombre} · ${c?.nombre || '?'}: ${est}`;
+        }).join('\n');
+    }
+    return { titulo, html, texto, periodo, empresa };
   }
 
   async function pintarReporte() {
     const data = await reunirReporte();
     if (!data) return;
-    const { filas, mapaC } = data;
     const cont = $('#repResultado');
-    if (!filas.length) { cont.innerHTML = `<div class="empty"><div class="big">📭</div><p>Sin registros en ese rango.</p></div>`; return; }
-    const tardes = filas.filter((r) => r.minutosTarde > 0).length;
-    const ausentes = filas.filter((r) => r.ausente).length;
-    const totMin = filas.reduce((s, r) => s + (r.minutosTarde || 0), 0);
-    const cuerpo = filas.map((r) => {
-      const c = mapaC[r.colaboradorId];
-      let est = r.ausente
-        ? (r.justificada ? '<span class="chip gray">Aus. justif.</span>' : '<span class="chip bad">Aus. injustif.</span>')
-        : (r.minutosTarde > 0 ? `<span class="chip warn">${r.minutosTarde}m</span>` : '<span class="chip ok">—</span>');
-      return `<tr><td>${esc(fmtFechaISO(r.evento.fecha))}</td><td>${esc(r.evento.nombre)}</td>
-        <td>${esc(c?.nombre || '?')}</td><td>${r.ausente ? '—' : esc(fmt12h(r.entrada) || '—')}</td>
-        <td>${r.ausente ? '—' : esc(fmt12h(r.salida) || '—')}</td><td>${est}</td></tr>`;
-    }).join('');
-    cont.innerHTML = `
-      <div class="grid2">
-        <div class="card stat warn"><div class="num">${tardes}</div><div class="lbl">Tardías (${totMin} min)</div></div>
-        <div class="card stat bad"><div class="num">${ausentes}</div><div class="lbl">Ausencias</div></div>
-      </div>
-      <div class="card" style="overflow:auto">
-        <table><thead><tr><th>Fecha</th><th>Evento</th><th>Colaborador</th><th>Entrada</th><th>Salida</th><th>Estado</th></tr></thead>
-        <tbody>${cuerpo}</tbody></table>
-      </div>`;
+    if (!data.filas.length) { cont.innerHTML = `<div class="empty"><div class="big">📭</div><p>Sin registros en ese rango.</p></div>`; return; }
+    const inf = construirInforme(data, $('#repTipo').value);
+    cont.innerHTML = `<p class="muted" style="margin:4px 2px">${esc(inf.titulo)} · ${esc(inf.periodo)}</p>${inf.html}`;
+  }
+
+  async function copiarWhatsapp() {
+    const data = await reunirReporte();
+    if (!data) return;
+    if (!data.filas.length) { toast('Sin datos para el periodo.'); return; }
+    const { texto } = construirInforme(data, $('#repTipo').value);
+    let ok = false;
+    try { await navigator.clipboard.writeText(texto); ok = true; } catch (e) { ok = false; }
+    Modal.open(`
+      <h3>Informe para WhatsApp</h3>
+      <p class="muted" style="margin-top:-6px">${ok ? '✅ Ya quedó copiado. ' : ''}Puedes copiarlo y pegarlo en el chat.</p>
+      <textarea id="waText" rows="12" style="width:100%;font-size:.9rem;border:1px solid var(--line);border-radius:10px;padding:10px">${esc(texto)}</textarea>
+      <button class="btn block mt" id="waCopiar">📋 Copiar</button>
+    `);
+    $('#waCopiar').onclick = async () => {
+      const ta = $('#waText'); ta.select();
+      try { await navigator.clipboard.writeText(ta.value); } catch (e) { document.execCommand('copy'); }
+      toast('Copiado');
+    };
+  }
+
+  async function generarPDF() {
+    const data = await reunirReporte();
+    if (!data) return;
+    if (!data.filas.length) { toast('Sin datos para el periodo.'); return; }
+    const inf = construirInforme(data, $('#repTipo').value);
+    const w = window.open('', '_blank');
+    if (!w) { toast('Permita ventanas emergentes para el PDF.'); return; }
+    w.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+      <title>${esc(inf.empresa)} - ${esc(inf.titulo)}</title>
+      <style>
+        body{font-family:system-ui,Arial,sans-serif;color:#0f172a;padding:24px;max-width:800px;margin:0 auto}
+        h1{margin:0;color:#0f766e;font-size:20px} h2{font-size:15px;margin:2px 0 16px;color:#475569;font-weight:500}
+        table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+        th,td{border:1px solid #e2e8f0;padding:7px 9px;text-align:left} th{background:#f1f5f9}
+        .stat-row{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+        .stat-row .card{border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;text-align:center;min-width:120px}
+        .stat-row .num{font-size:22px;font-weight:800;color:#0f766e}.stat-row .lbl{font-size:11px;color:#475569}
+        .pie{margin-top:24px;font-size:11px;color:#94a3b8;text-align:center}
+        @media print{button{display:none}}
+      </style></head><body>
+      <h1>${esc(inf.empresa)}</h1>
+      <h2>${esc(inf.titulo)} · ${esc(inf.periodo)}</h2>
+      ${inf.html.replace(/class="card"[^>]*>/g, '>').replace(/class="grid2"/g, 'class="stat-row"').replace(/class="card stat[^"]*"/g, 'class="card"')}
+      <div class="pie">Generado el ${fmtFechaISO(hoyISO())} · Red de Vida</div>
+      <button onclick="print()" style="margin-top:16px;padding:10px 16px">Imprimir / Guardar PDF</button>
+      <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>
+      </body></html>`);
+    w.document.close();
+    toast('Abriendo PDF para imprimir/guardar');
   }
 
   async function exportarCSV() {
@@ -568,7 +718,16 @@
       $$('[data-editar-colab]', main).forEach((b) => (b.onclick = () => formColaborador(b.dataset.editarColab)));
     }
     if (vista === 'reportes') {
+      const setPeriodo = (rango) => { const [i, f] = rango; $('#repIni').value = i; $('#repFin').value = f; pintarReporte(); };
+      $$('[data-periodo]', main).forEach((b) => (b.onclick = () => {
+        $$('[data-periodo]', main).forEach((x) => x.classList.add('ghost'));
+        b.classList.remove('ghost');
+        setPeriodo(b.dataset.periodo === 'semana' ? rangoSemana() : b.dataset.periodo === 'cuatri' ? rangoCuatri() : rangoMes());
+      }));
+      $('#repTipo').onchange = pintarReporte;
       $('#repGenerar').onclick = pintarReporte;
+      $('#repWA').onclick = copiarWhatsapp;
+      $('#repPDF').onclick = generarPDF;
       $('#repCSV').onclick = exportarCSV;
       pintarReporte();
     }
