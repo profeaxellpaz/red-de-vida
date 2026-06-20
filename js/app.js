@@ -5,7 +5,10 @@
   // ---------- Utilidades ----------
   const $ = (sel, ctx = document) => ctx.querySelector(sel);
   const $$ = (sel, ctx = document) => [...ctx.querySelectorAll(sel)];
-  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const uid = () => (crypto.randomUUID ? crypto.randomUUID()
+    : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+      }));
   const pad = (n) => String(n).padStart(2, '0');
 
   const hoyISO = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -294,6 +297,11 @@
         <button class="btn block" id="setExport">⬇ Descargar respaldo (.json)</button>
         <button class="btn block ghost mt" id="setImport">⬆ Restaurar desde respaldo</button>
         <input type="file" id="fileImport" accept="application/json" hidden>
+      </div>
+      <div class="card">
+        <h3 style="margin:0 0 6px">Sesión</h3>
+        <p class="muted" style="margin:0 0 12px">Datos compartidos en la nube. Conectado como acceso compartido.</p>
+        <button class="btn block ghost" id="setSalir">Cerrar sesión</button>
       </div>
       <div class="card">
         <h3 style="margin:0 0 6px;color:var(--bad)">Zona peligrosa</h3>
@@ -588,6 +596,10 @@
         } catch (err) { toast('Archivo no válido: ' + err.message); }
         e.target.value = '';
       };
+      $('#setSalir').onclick = async () => {
+        await Auth.logout();
+        mostrarLogin('Sesión cerrada.');
+      };
       $('#setBorrar').onclick = async () => {
         if (!confirm('¿Borrar TODOS los datos (eventos, colaboradores y registros)?')) return;
         if (!confirm('Última confirmación: se perderá todo. ¿Seguro?')) return;
@@ -597,13 +609,45 @@
     }
   }
 
+  // ================= LOGIN =================
+  function mostrarLogin(msg) {
+    $('#login').hidden = false;
+    document.body.classList.add('cargando-app');
+    const inp = $('#loginPass'), btn = $('#loginBtn'), out = $('#loginMsg');
+    if (msg) { out.textContent = msg; out.classList.add('error'); }
+    const entrar = async () => {
+      const pass = inp.value.trim();
+      if (!pass) { out.textContent = 'Ingrese la clave.'; out.classList.add('error'); return; }
+      btn.disabled = true; out.classList.remove('error'); out.textContent = 'Entrando...';
+      const { error } = await Auth.login(pass);
+      btn.disabled = false;
+      if (error) { out.classList.add('error'); out.textContent = 'Clave incorrecta o sin conexión.'; return; }
+      inp.value = ''; out.textContent = '';
+      await arrancarApp();
+    };
+    btn.onclick = entrar;
+    inp.onkeydown = (e) => { if (e.key === 'Enter') entrar(); };
+    inp.focus();
+  }
+
+  async function arrancarApp() {
+    $('#login').hidden = true;
+    document.body.classList.remove('cargando-app');
+    try {
+      await Cfg.load();
+      await render('inicio');
+    } catch (e) {
+      mostrarLogin('Error cargando datos: ' + (e.message || e));
+    }
+  }
+
   // ================= ARRANQUE =================
   async function init() {
-    await DB.open();
-    await Cfg.load();
     tickReloj(); setInterval(tickReloj, 30000);
     $$('.tab').forEach((t) => (t.onclick = () => render(t.dataset.vista)));
-    await render('inicio');
+
+    const ses = await Auth.session();
+    if (ses) await arrancarApp(); else mostrarLogin();
 
     let deferred;
     window.addEventListener('beforeinstallprompt', (e) => {

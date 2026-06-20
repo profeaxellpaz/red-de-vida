@@ -10,6 +10,18 @@
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
+  <section id="login" class="login" hidden>
+    <div class="login-card">
+      <div class="login-logo">RV</div>
+      <h1>Red de Vida</h1>
+      <p class="muted">Control de asistencia</p>
+      <label>Clave de acceso</label>
+      <input type="password" id="loginPass" placeholder="Ingrese la clave compartida" autocomplete="current-password">
+      <button class="btn block mt" id="loginBtn">Entrar</button>
+      <p id="loginMsg" class="login-msg"></p>
+    </div>
+  </section>
+
   <header class="topbar">
     <div class="brand">
       <span class="logo">RV</span>
@@ -45,7 +57,9 @@
   <div id="modal" class="modal" hidden></div>
   <div id="toast" class="toast" hidden></div>
 
-  <script src="js/db.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/config.js"></script>
+  <script src="js/cloud.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
