@@ -1,5 +1,5 @@
 // Service Worker — caché offline para Red de Vida
-const CACHE = 'red-de-vida-v4';
+const CACHE = 'red-de-vida-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -26,9 +26,19 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
-// Cache-first: la app funciona 100% sin internet
+// Estrategia:
+// - API de Supabase: SIEMPRE red (nunca cachear datos dinámicos).
+// - Resto (app shell, CDN): cache-first para funcionar offline.
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+
+  // No cachear nunca las llamadas a Supabase (datos en vivo + auth)
+  if (url.hostname.endsWith('supabase.co')) {
+    e.respondWith(fetch(e.request));
+    return;
+  }
+
   e.respondWith(
     caches.match(e.request).then((cached) => {
       return (
