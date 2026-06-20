@@ -1,5 +1,5 @@
 // Service Worker — caché offline para Red de Vida
-const CACHE = 'red-de-vida-v8';
+const CACHE = 'red-de-vida-v9';
 const ASSETS = [
   './',
   './index.html',
