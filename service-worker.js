@@ -1,9 +1,10 @@
 // Service Worker — caché offline para Red de Vida
-const CACHE = 'red-de-vida-v7';
+const CACHE = 'red-de-vida-v8';
 const ASSETS = [
   './',
   './index.html',
   './css/styles.css',
+  './js/vendor/supabase.js',
   './js/config.js',
   './js/cloud.js',
   './js/app.js',
