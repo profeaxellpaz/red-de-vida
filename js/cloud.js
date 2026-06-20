@@ -1,9 +1,17 @@
 // cloud.js — Capa de datos en la nube (Supabase). Reemplaza a la base local.
 // Expone el MISMO objeto `DB` (mismos métodos) que usaba la versión offline,
 // para que app.js no cambie su forma de pedir/guardar datos.
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: true, autoRefreshToken: true }
-});
+const sb = window.supabase
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true }
+    })
+  : null;
+
+// Si la librería de Supabase no cargó (sin internet en la primera apertura),
+// dejamos un cliente "nulo" que avisa con un error claro en vez de fallar mudo.
+function sinConexion() {
+  return { error: { message: 'No se pudo conectar (revise su internet).' } };
+}
 
 // Mapeo entre nombres de campo de la app (camelCase) y columnas SQL (snake_case)
 const MAP = {
@@ -24,10 +32,13 @@ function fromDB(store, row) {
 }
 
 const Auth = {
-  async session() { const { data } = await sb.auth.getSession(); return data.session; },
-  async login(password) { return sb.auth.signInWithPassword({ email: ACCESO_EMAIL, password }); },
-  async logout() { return sb.auth.signOut(); },
-  onChange(cb) { sb.auth.onAuthStateChange((_e, s) => cb(s)); }
+  async session() { if (!sb) return null; const { data } = await sb.auth.getSession(); return data.session; },
+  async login(password) {
+    if (!sb) return sinConexion();
+    return sb.auth.signInWithPassword({ email: ACCESO_EMAIL, password });
+  },
+  async logout() { if (!sb) return; return sb.auth.signOut(); },
+  onChange(cb) { if (sb) sb.auth.onAuthStateChange((_e, s) => cb(s)); }
 };
 
 const DB = (() => {

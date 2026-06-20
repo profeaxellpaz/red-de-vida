@@ -1,5 +1,5 @@
 // Service Worker — caché offline para Red de Vida
-const CACHE = 'red-de-vida-v6';
+const CACHE = 'red-de-vida-v7';
 const ASSETS = [
   './',
   './index.html',
@@ -27,30 +27,41 @@ self.addEventListener('activate', (e) => {
 });
 
 // Estrategia:
-// - API de Supabase: SIEMPRE red (nunca cachear datos dinámicos).
-// - Resto (app shell, CDN): cache-first para funcionar offline.
+// - API de Supabase: SIEMPRE red (datos en vivo + auth, nunca cachear).
+// - Código propio (mismo origen): network-first → siempre la última versión,
+//   y si no hay internet, usa la copia guardada (offline).
+// - CDN (librería Supabase): cache-first para que la app abra sin demora.
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
 
-  // No cachear nunca las llamadas a Supabase (datos en vivo + auth)
   if (url.hostname.endsWith('supabase.co')) {
     e.respondWith(fetch(e.request));
     return;
   }
 
+  if (url.origin === self.location.origin) {
+    e.respondWith(
+      fetch(e.request)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+          return res;
+        })
+        .catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
+  // Cross-origin (CDN): cache-first
   e.respondWith(
-    caches.match(e.request).then((cached) => {
-      return (
-        cached ||
-        fetch(e.request)
-          .then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(e.request, copy));
-            return res;
-          })
-          .catch(() => cached)
-      );
-    })
+    caches.match(e.request).then((cached) =>
+      cached ||
+      fetch(e.request).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        return res;
+      })
+    )
   );
 });
