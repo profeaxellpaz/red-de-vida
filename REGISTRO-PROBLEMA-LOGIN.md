@@ -34,10 +34,17 @@ El código que el usuario probablemente seguía ejecutando era una versión **si
 - Se probó el flujo de login real en el entorno de previsualización: con un clic real al botón, `Auth.login()` responde sin error y la app pasa de la pantalla de login a "Inicio" en aproximadamente 3 segundos.
 - Se confirmó por `curl` que `js/app.js` en producción contenía el código esperado (con el timeout) antes de este cambio — es decir, el problema no era que el código en el servidor estuviera mal, sino que **no llegaba** al navegador del usuario a tiempo.
 
-## Qué falta verificar con el usuario (pendiente)
-- [ ] Pedirle que abra **https://profeaxellpaz.github.io/red-de-vida/** y confirme que ve **"versión 14"** en la pantalla de login.
-- [ ] Confirmar que el login con `reddevida2026` ya entra normalmente.
-- [ ] Si por alguna razón sigue sin entrar, pedirle que toque **"¿No entra? Forzar actualización"** y lo intente de nuevo — eso debería resolverlo sin intervención del desarrollador.
+## Actualización: falló en TRES dispositivos distintos (wifi y datos móviles)
+El usuario probó en tres dispositivos diferentes, mezclando wifi y datos móviles, y le pasó lo mismo en todos. Eso **descarta** que sea caché de un solo navegador o un bloqueo de una sola red/firewall (si fuera de red, no fallaría igual en datos móviles).
+
+Dato clave obtenido al preguntar directamente: **en todos los intentos esperaron menos de 15 segundos** antes de rendirse. El sistema tiene un timeout de 15s que SIEMPRE muestra un mensaje (de éxito o de error) como máximo a los 15s — si sueltan antes, es indistinguible (para el usuario) entre "está realmente colgado" y "solo está tardando unos segundos de más en una red móvil real, más lenta que un entorno de prueba". El texto fijo "Entrando..." no daba ninguna pista de que seguía trabajando, así que parecía congelado en ambos casos.
+
+**Fix aplicado (commit `b2e36ea`):** el mensaje ahora muestra los segundos transcurridos en vivo, ej. "Entrando... (4s) espere, no cierre la pantalla", para que se note que el sistema sigue intentando y no luce como un cuelgue. Publicado y confirmado en producción.
+
+## Qué falta verificar con el usuario (pendiente, AHORA más importante que antes)
+- [ ] **Prueba decisiva pendiente**: pedirle que intente entrar UNA vez más, sin tocar nada más, y que **cuente en voz alta hasta 20** sin soltar la pantalla, anotando exactamente qué dice el mensaje en el segundo 5, en el 15 y en el 20. Si en el segundo 15-16 aparece un mensaje de error claro (p. ej. "No hubo respuesta de la nube en 15s..."), confirma que el problema era de paciencia/percepción, no un cuelgue real, y el contador de segundos ya lo resuelve. Si pasan los 20 segundos sin ningún cambio en el texto, eso sí sería un cuelgue real y hay que seguir investigando (sería la primera confirmación de un cuelgue genuino más allá del timeout).
+- [ ] Confirmar que ve **"versión 14"** en la pantalla de login (para asegurarnos de que tiene el código con el contador de segundos).
+- [ ] Si por alguna razón sigue sin entrar, pedirle que toque **"¿No entra? Forzar actualización"** y lo intente de nuevo.
 - [ ] Recordatorio pendiente desde antes: **revocar el Personal Access Token de Supabase** (`sbp_42ce...`) que se usó temporalmente para confirmar el correo del usuario del sistema, en https://supabase.com/dashboard/account/tokens — no confirmado aún que se haya hecho.
 
 ## Aprendizaje para no repetir el error
