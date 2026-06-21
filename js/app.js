@@ -828,7 +828,17 @@
       const b = $('#btnInstalar'); b.hidden = false;
       b.onclick = async () => { b.hidden = true; deferred.prompt(); await deferred.userChoice; deferred = null; };
     });
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js').catch(() => {});
+    if ('serviceWorker' in navigator) {
+      // Si ya había una versión controlando la página y entra una nueva,
+      // recargar una vez para usar siempre el código más reciente.
+      if (navigator.serviceWorker.controller) {
+        let recargando = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (recargando) return; recargando = true; location.reload();
+        });
+      }
+      navigator.serviceWorker.register('service-worker.js').catch(() => {});
+    }
   }
 
   document.addEventListener('DOMContentLoaded', init);
