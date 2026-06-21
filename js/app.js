@@ -778,11 +778,25 @@
       const pass = inp.value.trim();
       if (!pass) { out.textContent = 'Ingrese la clave.'; out.classList.add('error'); return; }
       btn.disabled = true; out.classList.remove('error'); out.textContent = 'Entrando...';
-      const { error } = await Auth.login(pass);
-      btn.disabled = false;
-      if (error) { out.classList.add('error'); out.textContent = 'Clave incorrecta o sin conexión.'; return; }
-      inp.value = ''; out.textContent = '';
-      await arrancarApp();
+      try {
+        const res = await Promise.race([
+          Auth.login(pass),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('TIEMPO_AGOTADO')), 15000))
+        ]);
+        btn.disabled = false;
+        if (res && res.error) {
+          out.classList.add('error');
+          out.textContent = 'No se pudo entrar: ' + (res.error.message || 'clave incorrecta');
+          return;
+        }
+        inp.value = ''; out.textContent = '';
+        await arrancarApp();
+      } catch (e) {
+        btn.disabled = false; out.classList.add('error');
+        out.textContent = e.message === 'TIEMPO_AGOTADO'
+          ? 'No hubo respuesta de la nube (15s). Revise su conexión a internet.'
+          : 'Error: ' + (e.message || e);
+      }
     };
     btn.onclick = entrar;
     inp.onkeydown = (e) => { if (e.key === 'Enter') entrar(); };
