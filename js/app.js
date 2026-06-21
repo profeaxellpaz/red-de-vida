@@ -777,12 +777,22 @@
     const entrar = async () => {
       const pass = inp.value.trim();
       if (!pass) { out.textContent = 'Ingrese la clave.'; out.classList.add('error'); return; }
-      btn.disabled = true; out.classList.remove('error'); out.textContent = 'Entrando...';
+      btn.disabled = true; out.classList.remove('error');
+      // Texto con segundos visibles para que no parezca congelado mientras
+      // espera la respuesta de la nube (el usuario real puede tardar varios
+      // segundos en una conexión móvil lenta, no es un cuelgue).
+      let segundos = 0;
+      out.textContent = 'Entrando... (conectando con la nube)';
+      const tic = setInterval(() => {
+        segundos++;
+        out.textContent = `Entrando... (${segundos}s) espere, no cierre la pantalla`;
+      }, 1000);
       try {
         const res = await Promise.race([
           Auth.login(pass),
           new Promise((_, rej) => setTimeout(() => rej(new Error('TIEMPO_AGOTADO')), 15000))
         ]);
+        clearInterval(tic);
         btn.disabled = false;
         if (res && res.error) {
           out.classList.add('error');
@@ -792,9 +802,10 @@
         inp.value = ''; out.textContent = '';
         await arrancarApp();
       } catch (e) {
+        clearInterval(tic);
         btn.disabled = false; out.classList.add('error');
         out.textContent = e.message === 'TIEMPO_AGOTADO'
-          ? 'No hubo respuesta de la nube (15s). Revise su conexión a internet.'
+          ? 'No hubo respuesta de la nube en 15s. Revise su conexión a internet e intente de nuevo.'
           : 'Error: ' + (e.message || e);
       }
     };
