@@ -47,6 +47,18 @@ body {
 .btn-install {
   background: #fff; color: var(--brand-d); border: 0;
   padding: 8px 12px; border-radius: 999px; font-weight: 700; font-size: .8rem;
+  flex-shrink: 0;
+}
+.banner-instalar {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--accent); color: #fff; padding: 10px 14px;
+  font-size: .82rem; position: sticky; top: 0; z-index: 4;
+}
+.banner-instalar[hidden] { display: none; }
+.banner-instalar span { flex: 1; }
+.banner-cerrar {
+  background: none; border: 0; color: #fff; font-size: 1.2rem;
+  cursor: pointer; flex-shrink: 0; line-height: 1; opacity: .85;
 }
 
 /* Main / vistas */

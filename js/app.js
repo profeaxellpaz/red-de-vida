@@ -766,16 +766,57 @@
 
     await Cfg.load();
     await render('inicio');
-
-    let deferred;
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault(); deferred = e;
-      const b = $('#btnInstalar'); b.hidden = false;
-      b.onclick = async () => { b.hidden = true; deferred.prompt(); await deferred.userChoice; deferred = null; };
-    });
+    initInstalacion();
     // Ya no usamos service worker (la app necesita internet y la caché causaba
     // versiones viejas atascadas). Si quedó uno registrado, se elimina solo
     // gracias al "kill switch" en service-worker.js. No registramos ninguno.
+  }
+
+  // ---------- Instalar como app ----------
+  // No existe forma de instalar automáticamente sin que la persona lo toque
+  // (ningún navegador lo permite, por seguridad). Lo que sí se puede hacer es
+  // que el aviso sea imposible de ignorar: un banner fijo, con instrucciones
+  // claras según el sistema cuando el navegador no ofrece el botón nativo
+  // (Safari/iPhone y Firefox nunca disparan "beforeinstallprompt").
+  function yaInstalada() {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+  function instruccionesOS() {
+    const ua = navigator.userAgent;
+    if (/iPhone|iPad|iPod/.test(ua)) {
+      return 'En Safari: toca el botón de compartir (cuadrado con flecha hacia arriba) y elige "Agregar a pantalla de inicio".';
+    }
+    if (/Android/.test(ua)) {
+      return 'Toca el menú (⋮) del navegador y elige "Instalar app" o "Agregar a pantalla de inicio".';
+    }
+    return 'En el menú del navegador busca la opción "Instalar app" o "Agregar a pantalla de inicio".';
+  }
+  function initInstalacion() {
+    const banner = $('#bannerInstalar');
+    if (!banner) return;
+    if (yaInstalada() || localStorage.getItem('rv_banner_instalar_oculto') === '1') {
+      banner.hidden = true; return;
+    }
+    let deferred = null;
+    const btn = $('#btnInstalar');
+    btn.onclick = async () => {
+      if (deferred) {
+        banner.hidden = true;
+        deferred.prompt();
+        await deferred.userChoice;
+        deferred = null;
+      } else {
+        Modal.open(`<h3>Cómo instalar</h3><p>${instruccionesOS()}</p>`);
+      }
+    };
+    $('#btnCerrarBanner').onclick = () => {
+      banner.hidden = true;
+      localStorage.setItem('rv_banner_instalar_oculto', '1');
+    };
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferred = e;
+    });
   }
 
   document.addEventListener('DOMContentLoaded', init);
