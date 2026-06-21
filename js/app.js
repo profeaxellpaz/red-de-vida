@@ -819,7 +819,8 @@
     tickReloj(); setInterval(tickReloj, 30000);
     $$('.tab').forEach((t) => (t.onclick = () => render(t.dataset.vista)));
 
-    const ses = await Auth.session();
+    let ses = null;
+    try { ses = await Auth.session(); } catch (e) { ses = null; }
     if (ses) await arrancarApp(); else mostrarLogin();
 
     let deferred;
@@ -828,17 +829,9 @@
       const b = $('#btnInstalar'); b.hidden = false;
       b.onclick = async () => { b.hidden = true; deferred.prompt(); await deferred.userChoice; deferred = null; };
     });
-    if ('serviceWorker' in navigator) {
-      // Si ya había una versión controlando la página y entra una nueva,
-      // recargar una vez para usar siempre el código más reciente.
-      if (navigator.serviceWorker.controller) {
-        let recargando = false;
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          if (recargando) return; recargando = true; location.reload();
-        });
-      }
-      navigator.serviceWorker.register('service-worker.js').catch(() => {});
-    }
+    // Ya no usamos service worker (la app necesita internet y la caché causaba
+    // versiones viejas atascadas). Si quedó uno registrado, se elimina solo
+    // gracias al "kill switch" en service-worker.js. No registramos ninguno.
   }
 
   document.addEventListener('DOMContentLoaded', init);
