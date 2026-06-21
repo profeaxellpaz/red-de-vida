@@ -801,6 +801,29 @@
     btn.onclick = entrar;
     inp.onkeydown = (e) => { if (e.key === 'Enter') entrar(); };
     inp.focus();
+
+    const btnForzar = $('#btnForzarActualizar');
+    if (btnForzar) btnForzar.onclick = forzarActualizacion;
+  }
+
+  // Limpia cualquier rastro de versiones viejas (service worker + cachés) y
+  // recarga con un parámetro nuevo para evitar que el navegador reuse JS
+  // cacheado. Botón de rescate para cuando el login se queda colgado por
+  // estar corriendo una versión vieja del código.
+  async function forzarActualizacion() {
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+    } catch (e) { /* nada */ }
+    const url = new URL(location.href);
+    url.searchParams.set('_r', Date.now());
+    location.replace(url.toString());
   }
 
   async function arrancarApp() {

@@ -187,6 +187,11 @@ th { color: var(--ink-soft); font-size: .72rem; text-transform: uppercase; }
 .login-card label { text-align: left; }
 .login-msg { font-size: .85rem; min-height: 18px; margin: 10px 0 0; }
 .login-msg.error { color: var(--bad); }
+.link-btn {
+  display: block; width: 100%; margin-top: 10px; padding: 6px;
+  background: none; border: none; color: var(--ink-soft);
+  font-size: .78rem; text-decoration: underline; cursor: pointer;
+}
 body.cargando-app .topbar, body.cargando-app .tabbar, body.cargando-app main { visibility: hidden; }
 
 .empty { text-align: center; padding: 40px 20px; color: var(--ink-soft); }

@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f766e" />
   <title>Red de Vida — Asistencia</title>
-  <link rel="manifest" href="manifest.json" />
+  <link rel="manifest" href="manifest.json?v=14" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="icon" href="icons/icon-192.png" />
-  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/styles.css?v=14" />
 </head>
 <body>
   <section id="login" class="login" hidden>
@@ -20,7 +20,8 @@
       <input type="password" id="loginPass" placeholder="Ingrese la clave compartida" autocomplete="current-password">
       <button class="btn block mt" id="loginBtn">Entrar</button>
       <p id="loginMsg" class="login-msg"></p>
-      <p class="muted" style="font-size:.7rem;margin:8px 0 0">versión 13</p>
+      <button type="button" id="btnForzarActualizar" class="link-btn">¿No entra? Forzar actualización</button>
+      <p class="muted" style="font-size:.7rem;margin:8px 0 0">versión 14</p>
     </div>
   </section>
 
@@ -59,9 +60,9 @@
   <div id="modal" class="modal" hidden></div>
   <div id="toast" class="toast" hidden></div>
 
-  <script src="js/vendor/supabase.js"></script>
-  <script src="js/config.js"></script>
-  <script src="js/cloud.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/vendor/supabase.js?v=14"></script>
+  <script src="js/config.js?v=14"></script>
+  <script src="js/cloud.js?v=14"></script>
+  <script src="js/app.js?v=14"></script>
 </body>
 </html>
