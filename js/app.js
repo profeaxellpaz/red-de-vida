@@ -310,11 +310,6 @@
         <input type="file" id="fileImport" accept="application/json" hidden>
       </div>
       <div class="card">
-        <h3 style="margin:0 0 6px">Sesión</h3>
-        <p class="muted" style="margin:0 0 12px">Datos compartidos en la nube. Conectado como acceso compartido.</p>
-        <button class="btn block ghost" id="setSalir">Cerrar sesión</button>
-      </div>
-      <div class="card">
         <h3 style="margin:0 0 6px;color:var(--bad)">Zona peligrosa</h3>
         <button class="btn block bad" id="setBorrar">Borrar TODOS los datos</button>
       </div>
@@ -755,10 +750,6 @@
         } catch (err) { toast('Archivo no válido: ' + err.message); }
         e.target.value = '';
       };
-      $('#setSalir').onclick = async () => {
-        await Auth.logout();
-        mostrarLogin('Sesión cerrada.');
-      };
       $('#setBorrar').onclick = async () => {
         if (!confirm('¿Borrar TODOS los datos (eventos, colaboradores y registros)?')) return;
         if (!confirm('Última confirmación: se perderá todo. ¿Seguro?')) return;
@@ -768,98 +759,13 @@
     }
   }
 
-  // ================= LOGIN =================
-  function mostrarLogin(msg) {
-    $('#login').hidden = false;
-    document.body.classList.add('cargando-app');
-    const inp = $('#loginPass'), btn = $('#loginBtn'), out = $('#loginMsg');
-    if (msg) { out.textContent = msg; out.classList.add('error'); }
-    const entrar = async () => {
-      const pass = inp.value.trim();
-      if (!pass) { out.textContent = 'Ingrese la clave.'; out.classList.add('error'); return; }
-      btn.disabled = true; out.classList.remove('error');
-      console.log('[RV] entrar() iniciado', new Date().toISOString(), 'sb listo:', !!window.supabase);
-      // Texto con segundos visibles para que no parezca congelado mientras
-      // espera la respuesta de la nube (el usuario real puede tardar varios
-      // segundos en una conexión móvil lenta, no es un cuelgue).
-      let segundos = 0;
-      out.textContent = 'Entrando... (conectando con la nube)';
-      const tic = setInterval(() => {
-        segundos++;
-        out.textContent = `Entrando... (${segundos}s) espere, no cierre la pantalla`;
-        console.log('[RV] esperando respuesta...', segundos, 's');
-      }, 1000);
-      try {
-        const res = await Promise.race([
-          Auth.login(pass),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('TIEMPO_AGOTADO')), 15000))
-        ]);
-        console.log('[RV] respuesta recibida', res);
-        clearInterval(tic);
-        btn.disabled = false;
-        if (res && res.error) {
-          out.classList.add('error');
-          out.textContent = 'No se pudo entrar: ' + (res.error.message || 'clave incorrecta');
-          return;
-        }
-        inp.value = ''; out.textContent = '';
-        await arrancarApp();
-      } catch (e) {
-        console.log('[RV] error/timeout', e);
-        clearInterval(tic);
-        btn.disabled = false; out.classList.add('error');
-        out.textContent = e.message === 'TIEMPO_AGOTADO'
-          ? 'No hubo respuesta de la nube en 15s. Revise su conexión a internet e intente de nuevo.'
-          : 'Error: ' + (e.message || e);
-      }
-    };
-    btn.onclick = entrar;
-    inp.onkeydown = (e) => { if (e.key === 'Enter') entrar(); };
-    inp.focus();
-
-    const btnForzar = $('#btnForzarActualizar');
-    if (btnForzar) btnForzar.onclick = forzarActualizacion;
-  }
-
-  // Limpia cualquier rastro de versiones viejas (service worker + cachés) y
-  // recarga con un parámetro nuevo para evitar que el navegador reuse JS
-  // cacheado. Botón de rescate para cuando el login se queda colgado por
-  // estar corriendo una versión vieja del código.
-  async function forzarActualizacion() {
-    try {
-      if ('serviceWorker' in navigator) {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map((r) => r.unregister()));
-      }
-      if (window.caches) {
-        const keys = await caches.keys();
-        await Promise.all(keys.map((k) => caches.delete(k)));
-      }
-    } catch (e) { /* nada */ }
-    const url = new URL(location.href);
-    url.searchParams.set('_r', Date.now());
-    location.replace(url.toString());
-  }
-
-  async function arrancarApp() {
-    $('#login').hidden = true;
-    document.body.classList.remove('cargando-app');
-    try {
-      await Cfg.load();
-      await render('inicio');
-    } catch (e) {
-      mostrarLogin('Error cargando datos: ' + (e.message || e));
-    }
-  }
-
   // ================= ARRANQUE =================
   async function init() {
     tickReloj(); setInterval(tickReloj, 30000);
     $$('.tab').forEach((t) => (t.onclick = () => render(t.dataset.vista)));
 
-    let ses = null;
-    try { ses = await Auth.session(); } catch (e) { ses = null; }
-    if (ses) await arrancarApp(); else mostrarLogin();
+    await Cfg.load();
+    await render('inicio');
 
     let deferred;
     window.addEventListener('beforeinstallprompt', (e) => {

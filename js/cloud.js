@@ -16,24 +16,14 @@ function storageSeguro() {
   };
 }
 
+// Sin login: el cliente usa solo la clave pública (anon). El acceso ya no
+// requiere clave compartida; las políticas RLS en Supabase deben permitir
+// lectura/escritura al rol "anon" (ver supabase/migrations/0002_sin_login.sql).
 const sb = window.supabase
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        storage: storageSeguro(),
-        // Sin Web Locks: evita el "Entrando..." colgado cuando el navegador
-        // restringe el almacenamiento o el bloqueo no se libera.
-        lock: (_name, _acquireTimeout, fn) => fn()
-      }
+      auth: { persistSession: false }
     })
   : null;
-
-// Si la librería de Supabase no cargó (sin internet en la primera apertura),
-// dejamos un cliente "nulo" que avisa con un error claro en vez de fallar mudo.
-function sinConexion() {
-  return { error: { message: 'No se pudo conectar (revise su internet).' } };
-}
 
 // Mapeo entre nombres de campo de la app (camelCase) y columnas SQL (snake_case)
 const MAP = {
@@ -52,16 +42,6 @@ function fromDB(store, row) {
   const o = {}; for (const k in row) o[inv[k] || k] = row[k];
   return o;
 }
-
-const Auth = {
-  async session() { if (!sb) return null; const { data } = await sb.auth.getSession(); return data.session; },
-  async login(password) {
-    if (!sb) return sinConexion();
-    return sb.auth.signInWithPassword({ email: ACCESO_EMAIL, password });
-  },
-  async logout() { if (!sb) return; return sb.auth.signOut(); },
-  onChange(cb) { if (sb) sb.auth.onAuthStateChange((_e, s) => cb(s)); }
-};
 
 const DB = (() => {
   async function open() { return true; } // compatibilidad (no hace falta abrir nada)
