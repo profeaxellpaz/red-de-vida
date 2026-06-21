@@ -778,6 +778,7 @@
       const pass = inp.value.trim();
       if (!pass) { out.textContent = 'Ingrese la clave.'; out.classList.add('error'); return; }
       btn.disabled = true; out.classList.remove('error');
+      console.log('[RV] entrar() iniciado', new Date().toISOString(), 'sb listo:', !!window.supabase);
       // Texto con segundos visibles para que no parezca congelado mientras
       // espera la respuesta de la nube (el usuario real puede tardar varios
       // segundos en una conexión móvil lenta, no es un cuelgue).
@@ -786,12 +787,14 @@
       const tic = setInterval(() => {
         segundos++;
         out.textContent = `Entrando... (${segundos}s) espere, no cierre la pantalla`;
+        console.log('[RV] esperando respuesta...', segundos, 's');
       }, 1000);
       try {
         const res = await Promise.race([
           Auth.login(pass),
           new Promise((_, rej) => setTimeout(() => rej(new Error('TIEMPO_AGOTADO')), 15000))
         ]);
+        console.log('[RV] respuesta recibida', res);
         clearInterval(tic);
         btn.disabled = false;
         if (res && res.error) {
@@ -802,6 +805,7 @@
         inp.value = ''; out.textContent = '';
         await arrancarApp();
       } catch (e) {
+        console.log('[RV] error/timeout', e);
         clearInterval(tic);
         btn.disabled = false; out.classList.add('error');
         out.textContent = e.message === 'TIEMPO_AGOTADO'
