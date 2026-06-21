@@ -1,9 +1,31 @@
 // cloud.js — Capa de datos en la nube (Supabase). Reemplaza a la base local.
 // Expone el MISMO objeto `DB` (mismos métodos) que usaba la versión offline,
 // para que app.js no cambie su forma de pedir/guardar datos.
+// Almacenamiento "a prueba de bloqueos": usa localStorage si se puede; si el
+// navegador lo bloquea (p. ej. Edge Tracking Prevention), cae a memoria.
+function storageSeguro() {
+  let ok = true;
+  try { const k = '__rv_test__'; localStorage.setItem(k, '1'); localStorage.removeItem(k); }
+  catch (e) { ok = false; }
+  if (ok) return window.localStorage;
+  const mem = {};
+  return {
+    getItem: (k) => (k in mem ? mem[k] : null),
+    setItem: (k, v) => { mem[k] = String(v); },
+    removeItem: (k) => { delete mem[k]; }
+  };
+}
+
 const sb = window.supabase
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-      auth: { persistSession: true, autoRefreshToken: true }
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        storage: storageSeguro(),
+        // Sin Web Locks: evita el "Entrando..." colgado cuando el navegador
+        // restringe el almacenamiento o el bloqueo no se libera.
+        lock: (_name, _acquireTimeout, fn) => fn()
+      }
     })
   : null;
 
