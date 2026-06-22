@@ -13,7 +13,6 @@
 
   const hoyISO = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const horaActual = (d = new Date()) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  const minDeHora = (hhmm) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m; };
   const fmtFechaLarga = (d = new Date()) =>
     d.toLocaleDateString('es-CR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const fmtFechaISO = (iso) => {
@@ -55,11 +54,10 @@
 
   // ---------- Config ----------
   const Cfg = {
-    data: { empresa: 'Red de Vida', tolerancia: 10 },
+    data: { empresa: 'Red de Vida' },
     async load() {
       const c = await DB.getConfig();
       this.data.empresa = c.empresa || this.data.empresa;
-      this.data.tolerancia = c.tolerancia != null ? c.tolerancia : this.data.tolerancia;
       $('#empresaNombre').textContent = this.data.empresa;
     },
     async save(patch) {
@@ -71,14 +69,6 @@
 
   function tickReloj() {
     $('#relojFecha').textContent = `${fmtFechaLarga()} · ${horaActual()}`;
-  }
-
-  // ---------- Tardía relativa al evento ----------
-  function calcTardia(evento, horaStr) {
-    if (!horaStr || !evento.horaEntrada) return 0;
-    const tol = evento.tolerancia != null ? evento.tolerancia : Cfg.data.tolerancia;
-    const diff = minDeHora(horaStr) - (minDeHora(evento.horaEntrada) + Number(tol));
-    return diff > 0 ? diff : 0;
   }
 
   async function regDe(eventoId, colaboradorId) {
@@ -132,7 +122,7 @@
     const eventos = (await DB.all('eventos')).sort((a, b) => b.fecha.localeCompare(a.fecha) || b.horaEntrada.localeCompare(a.horaEntrada));
     const items = await Promise.all(eventos.map(async (e) => {
       const regs = await DB.byIndex('registros', 'eventoId', e.id);
-      const marcados = regs.filter((r) => r.entrada || r.ausente).length;
+      const marcados = regs.length;
       return `<div class="item">
         <div class="avatar">📅</div>
         <div class="info">
@@ -169,25 +159,20 @@
     const regs = await DB.byIndex('registros', 'eventoId', eventoId);
     const mapa = Object.fromEntries(regs.map((r) => [r.colaboradorId, r]));
 
-    let presentes = 0, tardes = 0, ausentes = 0;
+    let presentes = 0, ausentes = 0;
     const items = colabs.map((c) => {
       const r = mapa[c.id];
       let estado = '<span class="chip gray">Sin marcar</span>';
-      let accion = `<button class="btn sm ok" data-entrada="${c.id}">Entrada</button>`;
+      let accion = `<button class="btn sm ok" data-presente="${c.id}">Presente</button>
+        <button class="btn sm bad" data-ausente="${c.id}">Ausente</button>`;
       if (r && r.ausente) {
         ausentes++;
         const chip = r.justificada ? '<span class="chip gray">Ausente justif.</span>' : '<span class="chip bad">Ausente injustif.</span>';
         estado = `${chip}${r.motivo ? ` <small class="muted">· ${esc(r.motivo)}</small>` : ''}`;
         accion = '';
-      } else if (r && r.entrada && !r.salida) {
-        presentes++; if (r.minutosTarde > 0) tardes++;
-        const t = r.minutosTarde > 0 ? `<span class="chip warn">Tarde ${r.minutosTarde}m</span>` : '<span class="chip ok">A tiempo</span>';
-        estado = `${t} <small class="muted">⬆ ${fmt12h(r.entrada)}</small>`;
-        accion = `<button class="btn sm warn" data-salida="${c.id}">Salida</button>`;
-      } else if (r && r.entrada && r.salida) {
-        presentes++; if (r.minutosTarde > 0) tardes++;
-        const tc = r.minutosTarde > 0 ? `<span class="chip warn">Tarde ${r.minutosTarde}m</span>` : '<span class="chip ok">Completo</span>';
-        estado = `${tc} <small class="muted">⬆${fmt12h(r.entrada)} ⬇${fmt12h(r.salida)}</small>`;
+      } else if (r) {
+        presentes++;
+        estado = '<span class="chip ok">Presente</span>';
         accion = '';
       }
       return `<div class="item">
@@ -195,7 +180,7 @@
         <div class="info"><b>${esc(c.nombre)}</b><br><small>${estado}</small></div>
         <div style="display:flex;gap:6px;align-items:center">
           ${accion}
-          <button class="btn sm ghost" data-editar-reg="${c.id}" title="Editar / Ausente">✎</button>
+          <button class="btn sm ghost" data-editar-reg="${c.id}" title="Editar">✎</button>
         </div>
       </div>`;
     });
@@ -205,12 +190,11 @@
       <div class="card">
         <b style="font-size:1.1rem">${esc(ev.nombre)}</b>
         <div class="muted">${fmtFechaISO(ev.fecha)}</div>
-        <div class="muted">🕒 ${fmt12h(ev.horaEntrada)} – ${fmt12h(ev.horaSalida)} · tolerancia ${ev.tolerancia ?? Cfg.data.tolerancia} min</div>
         ${ev.notas ? `<div class="muted mt">📝 ${esc(ev.notas)}</div>` : ''}
       </div>
       <div class="grid2">
         <div class="card stat ok"><div class="num">${presentes}</div><div class="lbl">Presentes</div></div>
-        <div class="card stat warn"><div class="num">${tardes}</div><div class="lbl">Tardías</div></div>
+        <div class="card stat bad"><div class="num">${ausentes}</div><div class="lbl">Ausentes</div></div>
       </div>
       ${colabs.length ? `<div class="list">${items.join('')}</div>`
         : `<div class="empty"><div class="big">👥</div><p>No hay colaboradores activos.</p>
@@ -220,8 +204,8 @@
     // eventos
     $('[data-volver]', main).onclick = () => render('eventos');
     $$('[data-goto]', main).forEach((b) => (b.onclick = () => render(b.dataset.goto)));
-    $$('[data-entrada]', main).forEach((b) => (b.onclick = async () => { await marcarEntrada(ev, b.dataset.entrada); renderPasarLista(eventoId); }));
-    $$('[data-salida]', main).forEach((b) => (b.onclick = async () => { await marcarSalida(ev, b.dataset.salida); renderPasarLista(eventoId); }));
+    $$('[data-presente]', main).forEach((b) => (b.onclick = async () => { await marcarPresente(ev, b.dataset.presente); renderPasarLista(eventoId); }));
+    $$('[data-ausente]', main).forEach((b) => (b.onclick = () => editarRegistro(ev, b.dataset.ausente, true)));
     $$('[data-editar-reg]', main).forEach((b) => (b.onclick = () => editarRegistro(ev, b.dataset.editarReg)));
   }
 
@@ -298,8 +282,6 @@
       <div class="card">
         <label>Nombre de la empresa</label>
         <input id="setEmpresa" value="${esc(c.empresa)}">
-        <label>Tolerancia por defecto para nuevos eventos (min)</label>
-        <input type="number" id="setTol" min="0" value="${c.tolerancia}">
         <button class="btn block mt" id="setGuardar">Guardar ajustes</button>
       </div>
       <div class="card">
@@ -329,35 +311,24 @@
   }
 
   // ================= ACCIONES =================
-  async function marcarEntrada(evento, colaboradorId) {
+  async function marcarPresente(evento, colaboradorId) {
     let reg = await regDe(evento.id, colaboradorId);
-    if (reg && reg.entrada) { toast('Ya tiene entrada marcada.'); return; }
-    const hora = horaActual();
-    const min = calcTardia(evento, hora);
     reg = reg || { id: uid(), eventoId: evento.id, colaboradorId };
-    reg.entrada = hora; reg.minutosTarde = min; reg.tarde = min > 0; reg.ausente = false;
+    reg.ausente = false; reg.justificada = false; reg.motivo = '';
     await DB.put('registros', reg);
-    toast(min > 0 ? `Entrada ${fmt12h(hora)} · tarde ${min} min` : `Entrada ${fmt12h(hora)} · a tiempo`);
+    toast('Marcado presente');
   }
 
-  async function marcarSalida(evento, colaboradorId) {
-    const reg = await regDe(evento.id, colaboradorId);
-    if (!reg || !reg.entrada) { toast('Primero marque la entrada.'); return; }
-    if (reg.salida) { toast('Ya tiene salida marcada.'); return; }
-    reg.salida = horaActual();
-    await DB.put('registros', reg);
-    toast(`Salida ${fmt12h(reg.salida)}`);
-  }
-
-  // Corrección manual de un registro (entrada/salida/ausente)
-  async function editarRegistro(evento, colaboradorId) {
+  // Marcar ausente (o corregir un marcaje ya hecho)
+  async function editarRegistro(evento, colaboradorId, comoAusente = false) {
     const colab = await DB.get('colaboradores', colaboradorId);
     const reg = (await regDe(evento.id, colaboradorId)) || { id: uid(), eventoId: evento.id, colaboradorId };
+    const marcarAusente = comoAusente || reg.ausente;
     Modal.open(`
       <h3>Editar marcaje</h3>
       <p class="muted" style="margin-top:-6px">${esc(colab.nombre)} · ${esc(evento.nombre)}</p>
       <label style="display:flex;align-items:center;gap:8px">
-        <input type="checkbox" id="edAusente" style="width:auto" ${reg.ausente ? 'checked' : ''}> Marcar como ausente
+        <input type="checkbox" id="edAusente" style="width:auto" ${marcarAusente ? 'checked' : ''}> Marcar como ausente
       </label>
       <div id="edAus">
         <label>Tipo de ausencia</label>
@@ -368,28 +339,17 @@
         <label>Motivo (opcional)</label>
         <input id="edMotivo" value="${esc(reg.motivo || '')}" placeholder="Ej: cita médica, permiso...">
       </div>
-      <div class="row mt" id="edHoras">
-        <div><label>Entrada</label><input type="time" id="edEnt" value="${reg.entrada || ''}"></div>
-        <div><label>Salida</label><input type="time" id="edSal" value="${reg.salida || ''}"></div>
-      </div>
       <button class="btn block mt" id="edGuardar">Guardar</button>
     `);
-    const tog = () => {
-      const aus = $('#edAusente').checked;
-      $('#edHoras').style.display = aus ? 'none' : 'flex';
-      $('#edAus').style.display = aus ? 'block' : 'none';
-    };
+    const tog = () => { $('#edAus').style.display = $('#edAusente').checked ? 'block' : 'none'; };
     $('#edAusente').onchange = tog; tog();
     $('#edGuardar').onclick = async () => {
       if ($('#edAusente').checked) {
-        reg.ausente = true; reg.entrada = null; reg.salida = null; reg.minutosTarde = 0; reg.tarde = false;
+        reg.ausente = true;
         reg.justificada = $('#edTipoAus').value === 'justificada';
         reg.motivo = $('#edMotivo').value.trim();
       } else {
-        const ent = $('#edEnt').value, sal = $('#edSal').value;
         reg.ausente = false; reg.justificada = false; reg.motivo = '';
-        reg.entrada = ent || null; reg.salida = sal || null;
-        reg.minutosTarde = ent ? calcTardia(evento, ent) : 0; reg.tarde = reg.minutosTarde > 0;
       }
       await DB.put('registros', reg);
       Modal.close(); toast('Marcaje actualizado'); renderPasarLista(evento.id);
@@ -398,7 +358,7 @@
 
   // Formulario de evento (nuevo / editar)
   async function formEvento(id) {
-    const e = id ? await DB.get('eventos', id) : { fecha: hoyISO(), horaEntrada: '19:00', horaSalida: '21:00', tolerancia: Cfg.data.tolerancia };
+    const e = id ? await DB.get('eventos', id) : { fecha: hoyISO(), horaEntrada: '19:00', horaSalida: '21:00' };
     Modal.open(`
       <h3>${id ? 'Editar' : 'Nuevo'} evento</h3>
       <label>Nombre del evento *</label>
@@ -409,8 +369,6 @@
         <div><label>Entrada</label><input type="time" id="eEnt" value="${e.horaEntrada || '19:00'}"></div>
         <div><label>Salida</label><input type="time" id="eSal" value="${e.horaSalida || '21:00'}"></div>
       </div>
-      <label>Tolerancia para tardía (min)</label>
-      <input type="number" id="eTol" min="0" value="${e.tolerancia != null ? e.tolerancia : Cfg.data.tolerancia}">
       <label>Notas (opcional)</label>
       <input id="eNotas" value="${esc(e.notas || '')}" placeholder="Ej: en el salón principal">
       <button class="btn block mt" id="eGuardar">Guardar evento</button>
@@ -426,7 +384,6 @@
         id: id || uid(), nombre, fecha,
         horaEntrada: $('#eEnt').value || '00:00',
         horaSalida: $('#eSal').value || '00:00',
-        tolerancia: Number($('#eTol').value) || 0,
         notas: $('#eNotas').value.trim()
       };
       await DB.put('eventos', obj);
@@ -522,17 +479,17 @@
     const m = {};
     filas.forEach((r) => {
       const id = r.colaboradorId;
-      const o = m[id] || (m[id] = { nombre: mapaC[id]?.nombre || '?', pres: 0, tard: 0, min: 0, ausJ: 0, ausI: 0 });
+      const o = m[id] || (m[id] = { nombre: mapaC[id]?.nombre || '?', pres: 0, ausJ: 0, ausI: 0 });
       if (r.ausente) { r.justificada ? o.ausJ++ : o.ausI++; }
-      else if (r.entrada) { o.pres++; if (r.minutosTarde > 0) { o.tard++; o.min += r.minutosTarde; } }
+      else { o.pres++; }
     });
     return Object.values(m).sort((a, b) => a.nombre.localeCompare(b.nombre));
   }
   function aggTotales(filas, nEventos) {
-    const t = { eventos: nEventos, pres: 0, tard: 0, min: 0, ausJ: 0, ausI: 0 };
+    const t = { eventos: nEventos, pres: 0, ausJ: 0, ausI: 0 };
     filas.forEach((r) => {
       if (r.ausente) { r.justificada ? t.ausJ++ : t.ausI++; }
-      else if (r.entrada) { t.pres++; if (r.minutosTarde > 0) { t.tard++; t.min += r.minutosTarde; } }
+      else { t.pres++; }
     });
     return t;
   }
@@ -540,9 +497,9 @@
     const m = {};
     filas.forEach((r) => {
       const ev = r.evento;
-      const o = m[ev.id] || (m[ev.id] = { nombre: ev.nombre, fecha: ev.fecha, pres: 0, tard: 0, ausJ: 0, ausI: 0 });
+      const o = m[ev.id] || (m[ev.id] = { nombre: ev.nombre, fecha: ev.fecha, pres: 0, ausJ: 0, ausI: 0 });
       if (r.ausente) { r.justificada ? o.ausJ++ : o.ausI++; }
-      else if (r.entrada) { o.pres++; if (r.minutosTarde > 0) o.tard++; }
+      else { o.pres++; }
     });
     return Object.values(m).sort((a, b) => a.fecha.localeCompare(b.fecha));
   }
@@ -561,48 +518,44 @@
         <div class="grid2">
           <div class="card stat brand"><div class="num">${t.eventos}</div><div class="lbl">Eventos</div></div>
           <div class="card stat ok"><div class="num">${t.pres}</div><div class="lbl">Presentes</div></div>
-          <div class="card stat warn"><div class="num">${t.tard}</div><div class="lbl">Tardías (${t.min} min)</div></div>
           <div class="card stat gray"><div class="num">${t.ausJ}</div><div class="lbl">Aus. justificadas</div></div>
           <div class="card stat bad"><div class="num">${t.ausI}</div><div class="lbl">Aus. injustificadas</div></div>
         </div>`;
       texto = `*${empresa} — Totales*\n📅 ${periodo}\n\n`
-        + `🗓️ Eventos: ${t.eventos}\n✅ Presentes: ${t.pres}\n⏰ Tardías: ${t.tard} (${t.min} min)\n`
+        + `🗓️ Eventos: ${t.eventos}\n✅ Presentes: ${t.pres}\n`
         + `🟡 Aus. justificadas: ${t.ausJ}\n🔴 Aus. injustificadas: ${t.ausI}`;
     } else if (tipo === 'colaborador') {
       const rows = aggColaborador(filas, mapaC);
       titulo = 'Resumen por colaborador';
       html = `<div class="card" style="overflow:auto"><table>
-        <thead><tr><th>Colaborador</th><th>Pres.</th><th>Tard.</th><th>Min</th><th>Aus.J</th><th>Aus.I</th></tr></thead>
-        <tbody>${rows.map((r) => `<tr><td>${esc(r.nombre)}</td><td>${r.pres}</td><td>${r.tard}</td><td>${r.min}</td><td>${r.ausJ}</td><td>${r.ausI}</td></tr>`).join('')}</tbody>
+        <thead><tr><th>Colaborador</th><th>Pres.</th><th>Aus.J</th><th>Aus.I</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr><td>${esc(r.nombre)}</td><td>${r.pres}</td><td>${r.ausJ}</td><td>${r.ausI}</td></tr>`).join('')}</tbody>
         </table></div>`;
       texto = `*${empresa} — Por colaborador*\n📅 ${periodo}\n\n`
-        + rows.map((r) => `*${r.nombre}*\n  ✅ ${r.pres} pres · ⏰ ${r.tard} tard (${r.min}m)\n  🟡 ${r.ausJ} just · 🔴 ${r.ausI} injust`).join('\n\n');
+        + rows.map((r) => `*${r.nombre}*\n  ✅ ${r.pres} pres · 🟡 ${r.ausJ} just · 🔴 ${r.ausI} injust`).join('\n\n');
     } else if (tipo === 'evento') {
       const rows = aggEvento(filas);
       titulo = 'Resumen por evento';
       html = `<div class="card" style="overflow:auto"><table>
-        <thead><tr><th>Fecha</th><th>Evento</th><th>Pres.</th><th>Tard.</th><th>Aus.J</th><th>Aus.I</th></tr></thead>
-        <tbody>${rows.map((r) => `<tr><td>${esc(fmtFechaISO(r.fecha))}</td><td>${esc(r.nombre)}</td><td>${r.pres}</td><td>${r.tard}</td><td>${r.ausJ}</td><td>${r.ausI}</td></tr>`).join('')}</tbody>
+        <thead><tr><th>Fecha</th><th>Evento</th><th>Pres.</th><th>Aus.J</th><th>Aus.I</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr><td>${esc(fmtFechaISO(r.fecha))}</td><td>${esc(r.nombre)}</td><td>${r.pres}</td><td>${r.ausJ}</td><td>${r.ausI}</td></tr>`).join('')}</tbody>
         </table></div>`;
       texto = `*${empresa} — Por evento*\n📅 ${periodo}\n\n`
-        + rows.map((r) => `*${r.nombre}* (${fmtFechaISO(r.fecha)})\n  ✅ ${r.pres} · ⏰ ${r.tard} · 🟡 ${r.ausJ} · 🔴 ${r.ausI}`).join('\n\n');
+        + rows.map((r) => `*${r.nombre}* (${fmtFechaISO(r.fecha)})\n  ✅ ${r.pres} · 🟡 ${r.ausJ} · 🔴 ${r.ausI}`).join('\n\n');
     } else { // detalle
       titulo = 'Detalle completo';
       const cuerpo = filas.map((r) => {
         const c = mapaC[r.colaboradorId];
-        const est = r.ausente ? (r.justificada ? 'Aus. justif.' : 'Aus. injustif.')
-          : (r.minutosTarde > 0 ? `Tarde ${r.minutosTarde}m` : 'A tiempo');
-        return `<tr><td>${esc(fmtFechaISO(r.evento.fecha))}</td><td>${esc(r.evento.nombre)}</td><td>${esc(c?.nombre || '?')}</td>
-          <td>${r.ausente ? '—' : esc(fmt12h(r.entrada) || '—')}</td><td>${r.ausente ? '—' : esc(fmt12h(r.salida) || '—')}</td><td>${esc(est)}</td></tr>`;
+        const est = r.ausente ? (r.justificada ? 'Aus. justif.' : 'Aus. injustif.') : 'Presente';
+        return `<tr><td>${esc(fmtFechaISO(r.evento.fecha))}</td><td>${esc(r.evento.nombre)}</td><td>${esc(c?.nombre || '?')}</td><td>${esc(est)}</td></tr>`;
       }).join('');
       html = `<div class="card" style="overflow:auto"><table>
-        <thead><tr><th>Fecha</th><th>Evento</th><th>Colaborador</th><th>Entrada</th><th>Salida</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Evento</th><th>Colaborador</th><th>Estado</th></tr></thead>
         <tbody>${cuerpo}</tbody></table></div>`;
       texto = `*${empresa} — Detalle*\n📅 ${periodo}\n\n`
         + filas.map((r) => {
           const c = mapaC[r.colaboradorId];
-          const est = r.ausente ? (r.justificada ? 'aus.just' : 'aus.injust')
-            : (r.minutosTarde > 0 ? `tarde ${r.minutosTarde}m` : 'a tiempo');
+          const est = r.ausente ? (r.justificada ? 'aus.just' : 'aus.injust') : 'presente';
           return `${fmtFechaISO(r.evento.fecha)} · ${r.evento.nombre} · ${c?.nombre || '?'}: ${est}`;
         }).join('\n');
     }
@@ -674,16 +627,11 @@
     if (!data) return;
     const { filas, mapaC } = data;
     if (!filas.length) { toast('No hay datos para exportar.'); return; }
-    const out = [['Fecha', 'Evento', 'Hora entrada evento', 'Hora salida evento', 'Colaborador', 'Cedula', 'Puesto', 'Entrada real', 'Salida real', 'Minutos tarde', 'Estado', 'Motivo']];
+    const out = [['Fecha', 'Evento', 'Colaborador', 'Cedula', 'Puesto', 'Estado', 'Motivo']];
     filas.forEach((r) => {
       const c = mapaC[r.colaboradorId] || {};
-      const estado = r.ausente
-        ? (r.justificada ? 'Ausente justificada' : 'Ausente injustificada')
-        : (r.minutosTarde > 0 ? 'Tarde' : 'A tiempo');
-      out.push([r.evento.fecha, r.evento.nombre, r.evento.horaEntrada, r.evento.horaSalida,
-        c.nombre || '', c.cedula || '', c.puesto || '',
-        r.ausente ? '' : (r.entrada || ''), r.ausente ? '' : (r.salida || ''),
-        r.ausente ? '' : (r.minutosTarde || 0),
+      const estado = r.ausente ? (r.justificada ? 'Ausente justificada' : 'Ausente injustificada') : 'Presente';
+      out.push([r.evento.fecha, r.evento.nombre, c.nombre || '', c.cedula || '', c.puesto || '',
         estado, r.ausente ? (r.motivo || '') : '']);
     });
     const csv = '﻿' + out.map((f) => f.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\r\n');
@@ -728,10 +676,7 @@
     }
     if (vista === 'ajustes') {
       $('#setGuardar').onclick = async () => {
-        await Cfg.save({
-          empresa: $('#setEmpresa').value.trim() || 'Red de Vida',
-          tolerancia: Number($('#setTol').value) || 0
-        });
+        await Cfg.save({ empresa: $('#setEmpresa').value.trim() || 'Red de Vida' });
         toast('Ajustes guardados');
       };
       $('#setExport').onclick = async () => {
