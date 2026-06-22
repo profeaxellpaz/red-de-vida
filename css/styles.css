@@ -75,6 +75,7 @@ main {
   box-shadow: var(--shadow); padding: 16px; margin-bottom: 14px;
 }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 .stat { text-align: center; }
 .stat .num { font-size: 1.8rem; font-weight: 800; }
 .stat .lbl { font-size: .78rem; color: var(--ink-soft); }

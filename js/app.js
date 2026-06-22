@@ -159,16 +159,21 @@
     const regs = await DB.byIndex('registros', 'eventoId', eventoId);
     const mapa = Object.fromEntries(regs.map((r) => [r.colaboradorId, r]));
 
-    let presentes = 0, ausentes = 0;
+    let presentes = 0, tardes = 0, ausentes = 0;
     const items = colabs.map((c) => {
       const r = mapa[c.id];
       let estado = '<span class="chip gray">Sin marcar</span>';
       let accion = `<button class="btn sm ok" data-presente="${c.id}">Presente</button>
+        <button class="btn sm warn" data-tarde="${c.id}">Tardía</button>
         <button class="btn sm bad" data-ausente="${c.id}">Ausente</button>`;
       if (r && r.ausente) {
         ausentes++;
         const chip = r.justificada ? '<span class="chip gray">Ausente justif.</span>' : '<span class="chip bad">Ausente injustif.</span>';
         estado = `${chip}${r.motivo ? ` <small class="muted">· ${esc(r.motivo)}</small>` : ''}`;
+        accion = '';
+      } else if (r && r.tarde) {
+        tardes++;
+        estado = '<span class="chip warn">Tardía</span>';
         accion = '';
       } else if (r) {
         presentes++;
@@ -192,8 +197,9 @@
         <div class="muted">${fmtFechaISO(ev.fecha)}</div>
         ${ev.notas ? `<div class="muted mt">📝 ${esc(ev.notas)}</div>` : ''}
       </div>
-      <div class="grid2">
+      <div class="grid3">
         <div class="card stat ok"><div class="num">${presentes}</div><div class="lbl">Presentes</div></div>
+        <div class="card stat warn"><div class="num">${tardes}</div><div class="lbl">Tardías</div></div>
         <div class="card stat bad"><div class="num">${ausentes}</div><div class="lbl">Ausentes</div></div>
       </div>
       ${colabs.length ? `<div class="list">${items.join('')}</div>`
@@ -205,6 +211,7 @@
     $('[data-volver]', main).onclick = () => render('eventos');
     $$('[data-goto]', main).forEach((b) => (b.onclick = () => render(b.dataset.goto)));
     $$('[data-presente]', main).forEach((b) => (b.onclick = async () => { await marcarPresente(ev, b.dataset.presente); renderPasarLista(eventoId); }));
+    $$('[data-tarde]', main).forEach((b) => (b.onclick = async () => { await marcarTarde(ev, b.dataset.tarde); renderPasarLista(eventoId); }));
     $$('[data-ausente]', main).forEach((b) => (b.onclick = () => editarRegistro(ev, b.dataset.ausente, true)));
     $$('[data-editar-reg]', main).forEach((b) => (b.onclick = () => editarRegistro(ev, b.dataset.editarReg)));
   }
@@ -314,22 +321,33 @@
   async function marcarPresente(evento, colaboradorId) {
     let reg = await regDe(evento.id, colaboradorId);
     reg = reg || { id: uid(), eventoId: evento.id, colaboradorId };
-    reg.ausente = false; reg.justificada = false; reg.motivo = '';
+    reg.ausente = false; reg.tarde = false; reg.justificada = false; reg.motivo = '';
     await DB.put('registros', reg);
     toast('Marcado presente');
   }
 
-  // Marcar ausente (o corregir un marcaje ya hecho)
+  async function marcarTarde(evento, colaboradorId) {
+    let reg = await regDe(evento.id, colaboradorId);
+    reg = reg || { id: uid(), eventoId: evento.id, colaboradorId };
+    reg.ausente = false; reg.tarde = true; reg.justificada = false; reg.motivo = '';
+    await DB.put('registros', reg);
+    toast('Marcado tardía');
+  }
+
+  // Corregir un marcaje (presente / tardía / ausente)
   async function editarRegistro(evento, colaboradorId, comoAusente = false) {
     const colab = await DB.get('colaboradores', colaboradorId);
     const reg = (await regDe(evento.id, colaboradorId)) || { id: uid(), eventoId: evento.id, colaboradorId };
-    const marcarAusente = comoAusente || reg.ausente;
+    const estadoActual = comoAusente ? 'ausente' : (reg.ausente ? 'ausente' : (reg.tarde ? 'tarde' : 'presente'));
     Modal.open(`
       <h3>Editar marcaje</h3>
       <p class="muted" style="margin-top:-6px">${esc(colab.nombre)} · ${esc(evento.nombre)}</p>
-      <label style="display:flex;align-items:center;gap:8px">
-        <input type="checkbox" id="edAusente" style="width:auto" ${marcarAusente ? 'checked' : ''}> Marcar como ausente
-      </label>
+      <label>Estado</label>
+      <select id="edEstado">
+        <option value="presente" ${estadoActual === 'presente' ? 'selected' : ''}>Presente</option>
+        <option value="tarde" ${estadoActual === 'tarde' ? 'selected' : ''}>Tardía</option>
+        <option value="ausente" ${estadoActual === 'ausente' ? 'selected' : ''}>Ausente</option>
+      </select>
       <div id="edAus">
         <label>Tipo de ausencia</label>
         <select id="edTipoAus">
@@ -341,16 +359,14 @@
       </div>
       <button class="btn block mt" id="edGuardar">Guardar</button>
     `);
-    const tog = () => { $('#edAus').style.display = $('#edAusente').checked ? 'block' : 'none'; };
-    $('#edAusente').onchange = tog; tog();
+    const tog = () => { $('#edAus').style.display = $('#edEstado').value === 'ausente' ? 'block' : 'none'; };
+    $('#edEstado').onchange = tog; tog();
     $('#edGuardar').onclick = async () => {
-      if ($('#edAusente').checked) {
-        reg.ausente = true;
-        reg.justificada = $('#edTipoAus').value === 'justificada';
-        reg.motivo = $('#edMotivo').value.trim();
-      } else {
-        reg.ausente = false; reg.justificada = false; reg.motivo = '';
-      }
+      const estado = $('#edEstado').value;
+      reg.ausente = estado === 'ausente';
+      reg.tarde = estado === 'tarde';
+      reg.justificada = estado === 'ausente' && $('#edTipoAus').value === 'justificada';
+      reg.motivo = estado === 'ausente' ? $('#edMotivo').value.trim() : '';
       await DB.put('registros', reg);
       Modal.close(); toast('Marcaje actualizado'); renderPasarLista(evento.id);
     };
@@ -479,16 +495,18 @@
     const m = {};
     filas.forEach((r) => {
       const id = r.colaboradorId;
-      const o = m[id] || (m[id] = { nombre: mapaC[id]?.nombre || '?', pres: 0, ausJ: 0, ausI: 0 });
+      const o = m[id] || (m[id] = { nombre: mapaC[id]?.nombre || '?', pres: 0, tard: 0, ausJ: 0, ausI: 0 });
       if (r.ausente) { r.justificada ? o.ausJ++ : o.ausI++; }
+      else if (r.tarde) { o.tard++; }
       else { o.pres++; }
     });
     return Object.values(m).sort((a, b) => a.nombre.localeCompare(b.nombre));
   }
   function aggTotales(filas, nEventos) {
-    const t = { eventos: nEventos, pres: 0, ausJ: 0, ausI: 0 };
+    const t = { eventos: nEventos, pres: 0, tard: 0, ausJ: 0, ausI: 0 };
     filas.forEach((r) => {
       if (r.ausente) { r.justificada ? t.ausJ++ : t.ausI++; }
+      else if (r.tarde) { t.tard++; }
       else { t.pres++; }
     });
     return t;
@@ -497,8 +515,9 @@
     const m = {};
     filas.forEach((r) => {
       const ev = r.evento;
-      const o = m[ev.id] || (m[ev.id] = { nombre: ev.nombre, fecha: ev.fecha, pres: 0, ausJ: 0, ausI: 0 });
+      const o = m[ev.id] || (m[ev.id] = { nombre: ev.nombre, fecha: ev.fecha, pres: 0, tard: 0, ausJ: 0, ausI: 0 });
       if (r.ausente) { r.justificada ? o.ausJ++ : o.ausI++; }
+      else if (r.tarde) { o.tard++; }
       else { o.pres++; }
     });
     return Object.values(m).sort((a, b) => a.fecha.localeCompare(b.fecha));
@@ -518,35 +537,36 @@
         <div class="grid2">
           <div class="card stat brand"><div class="num">${t.eventos}</div><div class="lbl">Eventos</div></div>
           <div class="card stat ok"><div class="num">${t.pres}</div><div class="lbl">Presentes</div></div>
+          <div class="card stat warn"><div class="num">${t.tard}</div><div class="lbl">Tardías</div></div>
           <div class="card stat gray"><div class="num">${t.ausJ}</div><div class="lbl">Aus. justificadas</div></div>
           <div class="card stat bad"><div class="num">${t.ausI}</div><div class="lbl">Aus. injustificadas</div></div>
         </div>`;
       texto = `*${empresa} — Totales*\n📅 ${periodo}\n\n`
-        + `🗓️ Eventos: ${t.eventos}\n✅ Presentes: ${t.pres}\n`
+        + `🗓️ Eventos: ${t.eventos}\n✅ Presentes: ${t.pres}\n⏰ Tardías: ${t.tard}\n`
         + `🟡 Aus. justificadas: ${t.ausJ}\n🔴 Aus. injustificadas: ${t.ausI}`;
     } else if (tipo === 'colaborador') {
       const rows = aggColaborador(filas, mapaC);
       titulo = 'Resumen por colaborador';
       html = `<div class="card" style="overflow:auto"><table>
-        <thead><tr><th>Colaborador</th><th>Pres.</th><th>Aus.J</th><th>Aus.I</th></tr></thead>
-        <tbody>${rows.map((r) => `<tr><td>${esc(r.nombre)}</td><td>${r.pres}</td><td>${r.ausJ}</td><td>${r.ausI}</td></tr>`).join('')}</tbody>
+        <thead><tr><th>Colaborador</th><th>Pres.</th><th>Tard.</th><th>Aus.J</th><th>Aus.I</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr><td>${esc(r.nombre)}</td><td>${r.pres}</td><td>${r.tard}</td><td>${r.ausJ}</td><td>${r.ausI}</td></tr>`).join('')}</tbody>
         </table></div>`;
       texto = `*${empresa} — Por colaborador*\n📅 ${periodo}\n\n`
-        + rows.map((r) => `*${r.nombre}*\n  ✅ ${r.pres} pres · 🟡 ${r.ausJ} just · 🔴 ${r.ausI} injust`).join('\n\n');
+        + rows.map((r) => `*${r.nombre}*\n  ✅ ${r.pres} pres · ⏰ ${r.tard} tard · 🟡 ${r.ausJ} just · 🔴 ${r.ausI} injust`).join('\n\n');
     } else if (tipo === 'evento') {
       const rows = aggEvento(filas);
       titulo = 'Resumen por evento';
       html = `<div class="card" style="overflow:auto"><table>
-        <thead><tr><th>Fecha</th><th>Evento</th><th>Pres.</th><th>Aus.J</th><th>Aus.I</th></tr></thead>
-        <tbody>${rows.map((r) => `<tr><td>${esc(fmtFechaISO(r.fecha))}</td><td>${esc(r.nombre)}</td><td>${r.pres}</td><td>${r.ausJ}</td><td>${r.ausI}</td></tr>`).join('')}</tbody>
+        <thead><tr><th>Fecha</th><th>Evento</th><th>Pres.</th><th>Tard.</th><th>Aus.J</th><th>Aus.I</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr><td>${esc(fmtFechaISO(r.fecha))}</td><td>${esc(r.nombre)}</td><td>${r.pres}</td><td>${r.tard}</td><td>${r.ausJ}</td><td>${r.ausI}</td></tr>`).join('')}</tbody>
         </table></div>`;
       texto = `*${empresa} — Por evento*\n📅 ${periodo}\n\n`
-        + rows.map((r) => `*${r.nombre}* (${fmtFechaISO(r.fecha)})\n  ✅ ${r.pres} · 🟡 ${r.ausJ} · 🔴 ${r.ausI}`).join('\n\n');
+        + rows.map((r) => `*${r.nombre}* (${fmtFechaISO(r.fecha)})\n  ✅ ${r.pres} · ⏰ ${r.tard} · 🟡 ${r.ausJ} · 🔴 ${r.ausI}`).join('\n\n');
     } else { // detalle
       titulo = 'Detalle completo';
       const cuerpo = filas.map((r) => {
         const c = mapaC[r.colaboradorId];
-        const est = r.ausente ? (r.justificada ? 'Aus. justif.' : 'Aus. injustif.') : 'Presente';
+        const est = r.ausente ? (r.justificada ? 'Aus. justif.' : 'Aus. injustif.') : (r.tarde ? 'Tardía' : 'Presente');
         return `<tr><td>${esc(fmtFechaISO(r.evento.fecha))}</td><td>${esc(r.evento.nombre)}</td><td>${esc(c?.nombre || '?')}</td><td>${esc(est)}</td></tr>`;
       }).join('');
       html = `<div class="card" style="overflow:auto"><table>
@@ -555,7 +575,7 @@
       texto = `*${empresa} — Detalle*\n📅 ${periodo}\n\n`
         + filas.map((r) => {
           const c = mapaC[r.colaboradorId];
-          const est = r.ausente ? (r.justificada ? 'aus.just' : 'aus.injust') : 'presente';
+          const est = r.ausente ? (r.justificada ? 'aus.just' : 'aus.injust') : (r.tarde ? 'tardía' : 'presente');
           return `${fmtFechaISO(r.evento.fecha)} · ${r.evento.nombre} · ${c?.nombre || '?'}: ${est}`;
         }).join('\n');
     }
@@ -630,7 +650,7 @@
     const out = [['Fecha', 'Evento', 'Colaborador', 'Cedula', 'Puesto', 'Estado', 'Motivo']];
     filas.forEach((r) => {
       const c = mapaC[r.colaboradorId] || {};
-      const estado = r.ausente ? (r.justificada ? 'Ausente justificada' : 'Ausente injustificada') : 'Presente';
+      const estado = r.ausente ? (r.justificada ? 'Ausente justificada' : 'Ausente injustificada') : (r.tarde ? 'Tardía' : 'Presente');
       out.push([r.evento.fecha, r.evento.nombre, c.nombre || '', c.cedula || '', c.puesto || '',
         estado, r.ausente ? (r.motivo || '') : '']);
     });
