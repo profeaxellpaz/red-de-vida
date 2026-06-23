@@ -180,10 +180,10 @@
         estado = '<span class="chip ok">Presente</span>';
         accion = '';
       }
-      return `<div class="item">
+      return `<div class="item item-marcaje">
         <div class="avatar">${iniciales(c.nombre)}</div>
         <div class="info"><b>${esc(c.nombre)}</b><br><small>${estado}</small></div>
-        <div style="display:flex;gap:6px;align-items:center">
+        <div class="acciones-marcaje">
           ${accion}
           <button class="btn sm ghost" data-editar-reg="${c.id}" title="Editar">✎</button>
         </div>

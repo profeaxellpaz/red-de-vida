@@ -122,6 +122,11 @@ input:focus, select:focus { outline: 2px solid var(--accent); border-color: var(
 .item .info { flex: 1; min-width: 0; }
 .item .info b { display: block; }
 .item .info small { color: var(--ink-soft); }
+.item-marcaje { flex-wrap: wrap; }
+.acciones-marcaje {
+  display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
+  justify-content: flex-end; flex: 1 1 100%;
+}
 .chip {
   font-size: .72rem; padding: 3px 9px; border-radius: 999px; font-weight: 700; white-space: nowrap;
 }
